@@ -7,41 +7,34 @@ import {
 } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
-import { StructuredOutputParser } from "@langchain/core/output_parsers";
 
-// Zod Schema for Structured Output
+// Zod Schema for Validation
 const SpeedResultSchema = z.object({
   address: z.string().describe("Sorgulanan adres"),
   downloadSpeed: z.number().describe("İndirme hızı (Mbps)"),
   uploadSpeed: z.number().describe("Yükleme hızı (Mbps)"),
   ping: z.number().describe("Ping değeri (ms)"),
   provider: z.string().describe("İnternet sağlayıcısı"),
-  technology: z
-    .enum(["Fiber", "VDSL", "ADSL", "Unavailable"])
-    .describe("İnternet teknolojisi"),
-  lastUpdated: z
-    .string()
-    .describe("Son güncelleme tarihi (YYYY-MM-DD HH:mm:ss)"),
-  infrastructure: z
-    .object({
-      maxSpeed: z.number().describe("Maksimum hız (Kbps)"),
-      svuid: z.string().describe("SVUID"),
-      technologies: z.object({
-        fiber: z.object({
-          available: z.boolean().describe("Fiber mevcut mu"),
-          distance: z.number().describe("Fiber mesafe (metre)"),
-        }),
-        vdsl: z.object({
-          available: z.boolean().describe("VDSL mevcut mu"),
-          distance: z.number().describe("VDSL mesafe (metre)"),
-        }),
-        adsl: z.object({
-          available: z.boolean().describe("ADSL mevcut mu"),
-          distance: z.number().describe("ADSL mesafe (metre)"),
-        }),
+  technology: z.enum(["Fiber", "VDSL", "ADSL", "Unavailable"]).describe("İnternet teknolojisi"),
+  lastUpdated: z.string().describe("Son güncelleme tarihi (YYYY-MM-DD HH:mm:ss)"),
+  infrastructure: z.object({
+    maxSpeed: z.number().describe("Maksimum hız (Kbps)"),
+    svuid: z.string().describe("SVUID"),
+    technologies: z.object({
+      fiber: z.object({
+        available: z.boolean().describe("Fiber mevcut mu"),
+        distance: z.number().describe("Fiber mesafe (metre)")
       }),
+      vdsl: z.object({
+        available: z.boolean().describe("VDSL mevcut mu"),
+        distance: z.number().describe("VDSL mesafe (metre)")
+      }),
+      adsl: z.object({
+        available: z.boolean().describe("ADSL mevcut mu"),
+        distance: z.number().describe("ADSL mesafe (metre)")
+      })
     })
-    .describe("Altyapı bilgileri"),
+  }).describe("Altyapı bilgileri")
 });
 
 // Profesyonel Infrastructure Interface
@@ -425,18 +418,16 @@ TÜM ADIMLARI SIRASIYLA YAP:
         .pop();
 
       if (lastToolResult) {
-        // Structured Output Parser ile AI'dan veri al
-        const parser = StructuredOutputParser.fromZodSchema(SpeedResultSchema);
-
+        // Structured Output ile AI'dan veri al
+        const structuredLLM = this.llm.withStructuredOutput(SpeedResultSchema);
+        
         const finalPrompt = `Altyapı verilerini analiz et ve hız bilgilerini çıkar:
 
 Altyapı Verisi: ${lastToolResult.output}
 Kullanıcı Adresi: ${userAddress}
 
-${parser.getFormatInstructions()}
-
 ÖNEMLİ KURALLAR:
-- MaxSpeed değeri Kbps cinsinden gelir, Mbps'e çevir (1000'e böl)   
+- MaxSpeed değeri Kbps cinsinden gelir, Mbps'e çevir (1000'e böl)
 - PortState "VAR" ise available: true, "YOK" ise available: false
 - Distance değerini metre cinsinden sayıya çevir
 - Teknoloji önceliği: Fiber > VDSL > ADSL > Unavailable
@@ -448,12 +439,11 @@ ${parser.getFormatInstructions()}
         currentMessages.push(response);
         currentMessages.push(new HumanMessage(finalPrompt));
 
-        // AI'dan structured response al
-        const finalResponse = await this.llm.invoke(currentMessages);
-
-        // Structured output parser ile parse et
+        // Structured output ile AI'dan veri al
         try {
-          const aiResult = await parser.parse(finalResponse.content as string);
+          console.log("Calling structured LLM...");
+          const aiResult = await structuredLLM.invoke(currentMessages);
+          console.log("Structured Result:", aiResult);
 
           // Tracing bilgilerini ekle
           const result: SpeedResult = {
@@ -467,20 +457,39 @@ ${parser.getFormatInstructions()}
           };
 
           return result;
-        } catch {
-          // Eğer AI structured output döndüremezse, manuel parsing'e geri dön
-          const infraData = JSON.parse(lastToolResult.output);
-          const result = this.processInfrastructureData(infraData, userAddress);
+        } catch (structuredError) {
+          console.error("Structured output failed:", structuredError);
+          
+          // Eğer structured output başarısız olursa, manuel parsing'e geri dön
+          try {
+            const infraData = JSON.parse(lastToolResult.output);
+            const result = this.processInfrastructureData(infraData, userAddress);
 
-          // Tracing bilgilerini ekle
-          result.tracing = {
-            steps: tracingSteps,
-            totalDuration: Date.now() - startTime,
-            aiModel: "gemini-flash-latest",
-            success: true,
-          };
+            // Fallback result'ı da validate et
+            SpeedResultSchema.parse({
+              address: result.address,
+              downloadSpeed: result.downloadSpeed,
+              uploadSpeed: result.uploadSpeed,
+              ping: result.ping,
+              provider: result.provider,
+              technology: result.technology,
+              lastUpdated: result.lastUpdated,
+              infrastructure: result.infrastructure
+            });
 
-          return result;
+            // Tracing bilgilerini ekle
+            result.tracing = {
+              steps: tracingSteps,
+              totalDuration: Date.now() - startTime,
+              aiModel: "gemini-flash-latest",
+              success: true,
+            };
+
+            return result;
+          } catch (fallbackError) {
+            console.error("Fallback parsing also failed:", fallbackError);
+            throw new Error(`Structured output failed: ${structuredError}. Fallback also failed: ${fallbackError}`);
+          }
         }
       }
 
@@ -490,6 +499,11 @@ ${parser.getFormatInstructions()}
       );
     } catch (error) {
       console.error("Address processing failed:", error);
+      console.error("Error details:", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : undefined
+      });
 
       // Hata durumunda da tracing bilgilerini döndür
       const errorMessage =
