@@ -4,15 +4,37 @@ import { HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messag
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
+
+// Profesyonel Infrastructure Interface
+interface InfrastructureData {
+  maxSpeed: number; // Kbps cinsinden
+  svuid: string;
+  technologies: {
+    fiber: {
+      available: boolean;
+      distance: number; // metre cinsinden
+    };
+    vdsl: {
+      available: boolean;
+      distance: number; // metre cinsinden
+    };
+    adsl: {
+      available: boolean;
+      distance: number; // metre cinsinden
+    };
+  };
+}
+
+// Profesyonel SpeedResult Interface
 interface SpeedResult {
   address: string;
-  downloadSpeed: number;
-  uploadSpeed: number;
-  ping: number;
+  downloadSpeed: number; // Mbps
+  uploadSpeed: number; // Mbps
+  ping: number; // ms
   provider: string;
-  technology: string;
+  technology: 'Fiber' | 'VDSL' | 'ADSL' | 'Unavailable';
   lastUpdated: string;
-  infrastructure: Record<string, any>;
+  infrastructure: InfrastructureData;
   tracing: {
     steps: Array<{
       step: number;
@@ -128,13 +150,14 @@ const infrastructureTool = tool(
   }
 );
 
+
 export class AddressProcessor {
   private llm: ChatGoogleGenerativeAI;
   private cityMap: Map<string, string>;
 
   constructor() {
     this.llm = new ChatGoogleGenerativeAI({
-      model: "gemini-flash-latest",
+      model: "models/gemini-2.0-flash-lite",
       apiKey: process.env.GOOGLE_API_KEY || "",
       temperature: 0.1,
     });
@@ -260,13 +283,18 @@ Adım adım işlem - TÜM ADIMLARI SIRASIYLA YAP:
 10. netspeed_api tool'unu kullanarak daire listesini getir (type=5, id=bina_id)
 11. Adresindeki daire numarasını bul ve ID'sini al
 12. infrastructure_api tool'unu kullanarak altyapı verilerini getir (final_id)
-13. Sonucu işle ve hız bilgilerini döndür
+13. Altyapı verilerini analiz et ve hız bilgilerini çıkar
 
 ÖNEMLİ: 
 - TÜM ADIMLARI SIRASIYLA YAP, DURMA!
 - Her adımda tool call yap
-- Sadece AI ile çalış, fallback kullanma
-- Son adımda infrastructure_api'yi çağır`;
+- Son adımda infrastructure_api'den gelen veriyi analiz et
+- MaxSpeed değeri Kbps cinsinden gelir, Mbps'e çevir (1000'e böl)
+- Teknoloji önceliği: Fiber > VDSL > ADSL
+- Upload hızı: Fiber %60, VDSL %25, ADSL %15
+- Ping: 10-40ms arası rastgele
+- Provider: Türk Telekom
+- Sonucu JSON formatında döndür`;
 
     const humanPrompt = `"${userAddress}" adresinin internet hızını bul. 
 
@@ -355,18 +383,87 @@ TÜM ADIMLARI SIRASIYLA YAP:
         .pop();
 
       if (lastToolResult) {
-        const infraData = JSON.parse(lastToolResult.output);
-        const result = this.processInfrastructureData(infraData, userAddress);
+        // AI'ya final parsing için mesaj gönder
+        const finalPrompt = `Altyapı verilerini analiz et ve profesyonel JSON formatında döndür:
 
-        // Tracing bilgilerini ekle
-        result.tracing = {
-          steps: tracingSteps,
-          totalDuration: Date.now() - startTime,
-          aiModel: "gemini-flash-latest",
-          success: true,
-        };
+Altyapı Verisi: ${lastToolResult.output}
+Kullanıcı Adresi: ${userAddress}
 
-        return result;
+Aşağıdaki profesyonel JSON formatında döndür:
+{
+  "address": "kullanıcı adresi",
+  "downloadSpeed": Mbps cinsinden sayı,
+  "uploadSpeed": Mbps cinsinden sayı,
+  "ping": ms cinsinden sayı,
+  "provider": "Türk Telekom",
+  "technology": "Fiber" | "VDSL" | "ADSL" | "Unavailable",
+  "lastUpdated": "YYYY-MM-DD HH:mm:ss formatında tarih",
+  "infrastructure": {
+    "maxSpeed": Kbps cinsinden sayı,
+    "svuid": "SVUID string değeri",
+    "technologies": {
+      "fiber": {
+        "available": true/false,
+        "distance": metre cinsinden sayı
+      },
+      "vdsl": {
+        "available": true/false,
+        "distance": metre cinsinden sayı
+      },
+      "adsl": {
+        "available": true/false,
+        "distance": metre cinsinden sayı
+      }
+    }
+  }
+}
+
+ÖNEMLİ KURALLAR:
+- MaxSpeed değeri Kbps cinsinden gelir, Mbps'e çevir (1000'e böl)
+- PortState "VAR" ise available: true, "YOK" ise available: false
+- Distance değerini metre cinsinden sayıya çevir
+- Teknoloji önceliği: Fiber > VDSL > ADSL > Unavailable
+- Upload hızı: Fiber %60, VDSL %25, ADSL %15
+- Ping: 10-40ms arası rastgele
+- Sadece geçerli JSON döndür, başka metin ekleme`;
+
+        currentMessages.push(response);
+        currentMessages.push(new HumanMessage(finalPrompt));
+
+        // AI'dan final response al
+        const finalResponse = await this.llm.invoke(currentMessages);
+        
+        // AI'nın response'unu parse et
+        try {
+          const aiResult = JSON.parse(finalResponse.content as string);
+          
+          // Tracing bilgilerini ekle
+          const result: SpeedResult = {
+            ...aiResult,
+            tracing: {
+              steps: tracingSteps,
+              totalDuration: Date.now() - startTime,
+              aiModel: "gemini-flash-latest",
+              success: true,
+            }
+          };
+
+          return result;
+        } catch {
+          // Eğer AI JSON döndüremezse, manuel parsing'e geri dön
+          const infraData = JSON.parse(lastToolResult.output);
+          const result = this.processInfrastructureData(infraData, userAddress);
+
+          // Tracing bilgilerini ekle
+          result.tracing = {
+            steps: tracingSteps,
+            totalDuration: Date.now() - startTime,
+            aiModel: "gemini-flash-latest",
+            success: true,
+          };
+
+          return result;
+        }
       }
 
       // Eğer AI bir sonuç döndüremezse hata fırlat
@@ -408,45 +505,50 @@ TÜM ADIMLARI SIRASIYLA YAP:
     
     // Upload hızı teknolojiye göre hesapla
     let uploadSpeed = 0;
+    let technology: 'Fiber' | 'VDSL' | 'ADSL' | 'Unavailable' = 'Unavailable';
+    
     if (infraData.Fiber?.PortState === "VAR") {
-      // Fiber için upload genelde download'ın %50-80'i
+      technology = "Fiber";
       uploadSpeed = Math.floor(downloadSpeed * 0.6);
     } else if (infraData.VDSL?.PortState === "VAR") {
-      // VDSL için upload genelde download'ın %20-30'u
+      technology = "VDSL";
       uploadSpeed = Math.floor(downloadSpeed * 0.25);
     } else if (infraData.ADSL?.PortState === "VAR") {
-      // ADSL için upload genelde download'ın %10-20'si
+      technology = "ADSL";
       uploadSpeed = Math.floor(downloadSpeed * 0.15);
     }
     
     const ping = Math.floor(Math.random() * 30) + 10;
 
-    // Teknoloji öncelik sırası: Fiber > VDSL > ADSL
-    let technology = "ADSL";
-    const provider = "Türk Telekom";
-
-    if (infraData.Fiber?.PortState === "VAR") {
-      technology = "Fiber";
-    } else if (infraData.VDSL?.PortState === "VAR") {
-      technology = "VDSL";
-    } else if (infraData.ADSL?.PortState === "VAR") {
-      technology = "ADSL";
-    }
-    
-    // Eğer hiçbir teknoloji mevcut değilse, hız 0 ise varsayılan değerler
-    if (downloadSpeed === 0) {
-      technology = "Mevcut Değil";
-    }
+    // Profesyonel infrastructure data
+    const infrastructure: InfrastructureData = {
+      maxSpeed: maxSpeedKbps,
+      svuid: infraData.SVUID || "",
+      technologies: {
+        fiber: {
+          available: infraData.Fiber?.PortState === "VAR",
+          distance: parseInt(infraData.Fiber?.Distance) || 0
+        },
+        vdsl: {
+          available: infraData.VDSL?.PortState === "VAR",
+          distance: parseInt(infraData.VDSL?.Distance) || 0
+        },
+        adsl: {
+          available: infraData.ADSL?.PortState === "VAR",
+          distance: parseInt(infraData.ADSL?.Distance) || 0
+        }
+      }
+    };
 
     return {
       address,
       downloadSpeed,
       uploadSpeed,
       ping,
-      provider,
+      provider: "Türk Telekom",
       technology,
-      lastUpdated: new Date().toLocaleString("tr-TR"),
-      infrastructure: infraData,
+      lastUpdated: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      infrastructure,
       tracing: {
         steps: [],
         totalDuration: 0,
