@@ -89,8 +89,8 @@ interface SpeedResult {
   };
 }
 
-// NetSpeed API Tool
-const netspeedAPITool = tool(
+// Service Provider API Tool
+const serviceProviderAPITool = tool(
   async ({ type, id }) => {
     try {
       const formData = new URLSearchParams();
@@ -125,8 +125,8 @@ const netspeedAPITool = tool(
     }
   },
   {
-    name: "netspeed_api",
-    description: "NetSpeed API'ye istek atarak adres bilgilerini getirir",
+    name: "service_provider_api",
+    description: "Service Provider API'ye istek atarak adres bilgilerini getirir",
     schema: z.object({
       type: z
         .union([z.number(), z.string()])
@@ -142,7 +142,7 @@ const netspeedAPITool = tool(
   }
 );
 
-// Altyapı verisi tool'u
+// Infrastructure data tool
 const infrastructureTool = tool(
   async ({ finalId }) => {
     try {
@@ -179,7 +179,7 @@ const infrastructureTool = tool(
   },
   {
     name: "infrastructure_api",
-    description: "NetSpeed API'den altyapı verilerini getirir",
+    description: "Service Provider API'den altyapı verilerini getirir",
     schema: z.object({
       finalId: z
         .union([z.string(), z.number()])
@@ -300,10 +300,10 @@ export class AddressProcessor {
       duration: number;
     }> = [];
 
-    const tools = [netspeedAPITool, infrastructureTool];
+    const tools = [serviceProviderAPITool, infrastructureTool];
     const llmWithTools = this.llm.bindTools(tools);
 
-    const systemPrompt = `Sen bir Türkiye adres uzmanısın. Verilen adresi analiz edip NetSpeed API'ye istek atarak internet hız bilgilerini getir.
+    const systemPrompt = `Sen bir Türkiye adres uzmanısın. Verilen adresi analiz edip Service Provider API'ye istek atarak internet hız bilgilerini getir.
 
 Mevcut şehir kodları:
 ${Array.from(this.cityMap.entries())
@@ -312,15 +312,15 @@ ${Array.from(this.cityMap.entries())
 
 Adım adım işlem - TÜM ADIMLARI SIRASIYLA YAP:
 1. Adresindeki şehir ismini bul ve yukarıdaki listeden ID'sini al
-2. netspeed_api tool'unu kullanarak ilçe listesini getir (type=1, id=şehir_id)
+2. service_provider_api tool'unu kullanarak ilçe listesini getir (type=1, id=şehir_id)
 3. Adresindeki ilçe ismini bul ve ID'sini al
-4. netspeed_api tool'unu kullanarak mahalle listesini getir (type=2, id=ilçe_id)
+4. service_provider_api tool'unu kullanarak mahalle listesini getir (type=2, id=ilçe_id)
 5. Adresindeki mahalle ismini bul ve ID'sini al
-6. netspeed_api tool'unu kullanarak sokak listesini getir (type=3, id=mahalle_id)
+6. service_provider_api tool'unu kullanarak sokak listesini getir (type=3, id=mahalle_id)
 7. Adresindeki sokak ismini bul ve ID'sini al
-8. netspeed_api tool'unu kullanarak bina listesini getir (type=4, id=sokak_id)
+8. service_provider_api tool'unu kullanarak bina listesini getir (type=4, id=sokak_id)
 9. Adresindeki bina numarasını bul ve ID'sini al
-10. netspeed_api tool'unu kullanarak daire listesini getir (type=5, id=bina_id)
+10. service_provider_api tool'unu kullanarak daire listesini getir (type=5, id=bina_id)
 11. Adresindeki daire numarasını bul ve ID'sini al
 12. infrastructure_api tool'unu kullanarak altyapı verilerini getir (final_id)
 13. Altyapı verilerini analiz et ve hız bilgilerini çıkar
@@ -332,8 +332,8 @@ Adım adım işlem - TÜM ADIMLARI SIRASIYLA YAP:
 - MaxSpeed değeri Kbps cinsinden gelir, Mbps'e çevir (1000'e böl)
 - Teknoloji önceliği: Fiber > VDSL > ADSL
 - Upload hızı: Fiber %60, VDSL %25, ADSL %15
-- Ping: 10-40ms arası rastgele
-- Provider: Türk Telekom
+- Ping: 4-90ms arası rastgele
+- Provider: Final response'dan provider bilgisini çıkar, yoksa "Unknown" döndür
 - Sonucu JSON formatında döndür`;
 
     const humanPrompt = `"${userAddress}" adresinin internet hızını bul.`;
@@ -426,7 +426,7 @@ Kullanıcı Adresi: ${userAddress}
 - Teknoloji önceliği: Fiber > VDSL > ADSL > Unavailable
 - Upload hızı: Fiber %60, VDSL %25, ADSL %15
 - Ping: 10-40ms arası rastgele
-- Provider: Altyapı verisinden provider bilgisini çıkar, yoksa "Unknown" döndür
+- Provider: Final response'dan provider bilgisini çıkar, yoksa "Unknown" döndür
 - lastUpdated: YYYY-MM-DD HH:mm:ss formatında`;
 
         currentMessages.push(response);
