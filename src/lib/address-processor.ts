@@ -195,7 +195,7 @@ export class AddressProcessor {
 
   constructor() {
     this.llm = new ChatGoogleGenerativeAI({
-      model: "models/gemini-2.0-flash-lite",
+      model: "models/gemini-2.5-flash-lite",
       apiKey: process.env.GOOGLE_API_KEY || "",
       temperature: 0.1,
     });
