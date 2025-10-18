@@ -129,11 +129,15 @@ const netspeedAPITool = tool(
     description: "NetSpeed API'ye istek atarak adres bilgilerini getirir",
     schema: z.object({
       type: z
-        .number()
+        .union([z.number(), z.string()])
+        .transform((val) => Number(val))
         .describe(
           "API istek tipi (1=şehir, 2=ilçe, 3=mahalle, 4=sokak, 5=bina, 6=daire)"
         ),
-      id: z.string().describe("Üst seviye ID"),
+      id: z
+        .union([z.string(), z.number()])
+        .transform((val) => String(val))
+        .describe("Üst seviye ID"),
     }),
   }
 );
@@ -177,7 +181,10 @@ const infrastructureTool = tool(
     name: "infrastructure_api",
     description: "NetSpeed API'den altyapı verilerini getirir",
     schema: z.object({
-      finalId: z.string().describe("Son adım ID'si"),
+      finalId: z
+        .union([z.string(), z.number()])
+        .transform((val) => String(val))
+        .describe("Son adım ID'si"),
     }),
   }
 );
@@ -329,21 +336,7 @@ Adım adım işlem - TÜM ADIMLARI SIRASIYLA YAP:
 - Provider: Türk Telekom
 - Sonucu JSON formatında döndür`;
 
-    const humanPrompt = `"${userAddress}" adresinin internet hızını bul. 
-
-TÜM ADIMLARI SIRASIYLA YAP:
-1. İzmir şehir ID'si: 35
-2. netspeed_api ile ilçe listesi getir (type=1, id=35)
-3. Menemen ilçesini bul
-4. netspeed_api ile mahalle listesi getir (type=2, id=menemen_id)
-5. Değirmendere mahallesini bul
-6. netspeed_api ile sokak listesi getir (type=3, id=değirmendere_id)
-7. Demirtaş sokakını bul
-8. netspeed_api ile bina listesi getir (type=4, id=demirtaş_id)
-9. 21 numaralı binayı bul
-10. netspeed_api ile daire listesi getir (type=5, id=bina_21_id)
-11. 2 numaralı daireyi bul
-12. infrastructure_api ile altyapı verilerini getir (final_id)`;
+    const humanPrompt = `"${userAddress}" adresinin internet hızını bul.`;
 
     const messages = [
       new SystemMessage(systemPrompt),
@@ -433,7 +426,7 @@ Kullanıcı Adresi: ${userAddress}
 - Teknoloji önceliği: Fiber > VDSL > ADSL > Unavailable
 - Upload hızı: Fiber %60, VDSL %25, ADSL %15
 - Ping: 10-40ms arası rastgele
-- Provider: "Türk Telekom"
+- Provider: Altyapı verisinden provider bilgisini çıkar, yoksa "Unknown" döndür
 - lastUpdated: YYYY-MM-DD HH:mm:ss formatında`;
 
         currentMessages.push(response);
@@ -579,7 +572,7 @@ Kullanıcı Adresi: ${userAddress}
       downloadSpeed,
       uploadSpeed,
       ping,
-      provider: "Türk Telekom",
+      provider: "Unknown", // Fallback'te provider bilgisi yoksa Unknown
       technology,
       lastUpdated: new Date().toISOString().replace("T", " ").substring(0, 19),
       infrastructure,
