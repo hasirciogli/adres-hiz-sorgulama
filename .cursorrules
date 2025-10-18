@@ -1,0 +1,97 @@
+# Cursor Rules for Adres Hız Sorgulama Project
+
+## Project Overview
+This is a Next.js project for querying internet speed at Turkish addresses. The project uses:
+- Next.js 15+ (latest)
+- TypeScript
+- Tailwind CSS
+- shadcn/ui components
+- Bun package manager
+
+## Design System Rules
+Follow the comprehensive design system specification provided by the user:
+- Clarity over Ornamentation: Minimalist and functional design
+- Content-First: UI should be unobtrusive canvas for content
+- Speed as a Feature: Fast interactions (150-200ms animations)
+- Keyboard-Driven: Full keyboard navigation support
+- High-Density & Information-Rich: Accommodate large amounts of information
+
+## Global Design Tokens
+Use these design tokens consistently:
+
+### Colors
+- `--bg-primary: rgb(255, 255, 255)` - Primary app background
+- `--bg-secondary: rgb(247, 247, 245)` - Sidebars, secondary panels
+- `--bg-tertiary: rgb(242, 241, 238)` - Hover states, subtle backgrounds
+- `--bg-inset: rgba(242, 241, 238, 0.6)` - Input backgrounds
+- `--text-primary: rgb(50, 48, 44)` - Main text, headings
+- `--text-secondary: rgb(115, 114, 110)` - Sub-headings, descriptions
+- `--text-tertiary: rgba(71, 70, 68, 0.6)` - Placeholders, disabled text
+- `--border-default: rgba(55, 53, 47, 0.09)` - Standard dividers
+- `--border-input: rgba(15, 15, 15, 0.1)` - Input borders
+- `--border-focus: rgb(35, 131, 226)` - Focus rings
+- `--accent-primary: rgb(35, 131, 226)` - Primary buttons, selected items
+- `--accent-primary-hover: rgba(35, 131, 226, 0.9)` - Primary hover states
+
+### Typography
+- Font Stack: `ui-sans-serif, -apple-system, "system-ui", ...` for UI
+- Font Sizes: Use design system scale (h1: 32px, h2: 28px, h3: 24px, body: 16px, ui: 14px, caption: 12px)
+- Font Weights: 400 (normal), 500 (medium), 600 (semibold)
+
+### Spacing (8px Grid)
+- `--space-1: 4px`, `--space-2: 8px`, `--space-3: 12px`, `--space-4: 16px`, `--space-6: 24px`, `--space-8: 32px`, `--space-12: 48px`
+
+### Borders & Shadows
+- Border Radius: `--radius-sm: 4px`, `--radius-md: 6px`, `--radius-lg: 10px`
+- Box Shadows: Use `--shadow-sm` and `--shadow-md` tokens
+
+## Component Guidelines
+- Use shadcn/ui components as base
+- Follow the design system component specifications
+- Implement proper accessibility (ARIA roles, keyboard navigation)
+- Use semantic HTML elements
+- Ensure proper focus management
+
+## Development Rules
+- Use Bun as package manager exclusively
+- Follow TypeScript best practices
+- Use Tailwind CSS for styling
+- Implement SPA (Single Page Application) design
+- Use mock APIs for development
+- Ensure responsive design
+- Follow Turkish language requirements for UI text
+
+## File Structure
+- Use `src/` directory structure
+- Components in `src/components/`
+- Pages in `src/app/`
+- Utils in `src/lib/`
+- Types in `src/types/`
+
+## API Integration
+- Use mock APIs for development
+- Implement proper error handling
+- Use loading states
+- Handle address validation
+- Support both Google Maps API and direct API integration
+
+## Accessibility Requirements
+- Semantic HTML structure
+- Keyboard navigation support
+- ARIA roles and attributes
+- Focus management
+- Color contrast compliance (WCAG AA)
+- Screen reader support
+
+## Performance
+- Fast loading times
+- Optimized images
+- Efficient state management
+- Minimal bundle size
+- Fast API responses
+
+## Deployment
+- Vercel deployment ready
+- Railway deployment support
+- Environment variable configuration
+- Production optimizations

@@ -1,9 +1,48 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
+import {
+  HumanMessage,
+  SystemMessage,
+  ToolMessage,
+} from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
+import { StructuredOutputParser } from "@langchain/core/output_parsers";
 
+// Zod Schema for Structured Output
+const SpeedResultSchema = z.object({
+  address: z.string().describe("Sorgulanan adres"),
+  downloadSpeed: z.number().describe("İndirme hızı (Mbps)"),
+  uploadSpeed: z.number().describe("Yükleme hızı (Mbps)"),
+  ping: z.number().describe("Ping değeri (ms)"),
+  provider: z.string().describe("İnternet sağlayıcısı"),
+  technology: z
+    .enum(["Fiber", "VDSL", "ADSL", "Unavailable"])
+    .describe("İnternet teknolojisi"),
+  lastUpdated: z
+    .string()
+    .describe("Son güncelleme tarihi (YYYY-MM-DD HH:mm:ss)"),
+  infrastructure: z
+    .object({
+      maxSpeed: z.number().describe("Maksimum hız (Kbps)"),
+      svuid: z.string().describe("SVUID"),
+      technologies: z.object({
+        fiber: z.object({
+          available: z.boolean().describe("Fiber mevcut mu"),
+          distance: z.number().describe("Fiber mesafe (metre)"),
+        }),
+        vdsl: z.object({
+          available: z.boolean().describe("VDSL mevcut mu"),
+          distance: z.number().describe("VDSL mesafe (metre)"),
+        }),
+        adsl: z.object({
+          available: z.boolean().describe("ADSL mevcut mu"),
+          distance: z.number().describe("ADSL mesafe (metre)"),
+        }),
+      }),
+    })
+    .describe("Altyapı bilgileri"),
+});
 
 // Profesyonel Infrastructure Interface
 interface InfrastructureData {
@@ -32,7 +71,7 @@ interface SpeedResult {
   uploadSpeed: number; // Mbps
   ping: number; // ms
   provider: string;
-  technology: 'Fiber' | 'VDSL' | 'ADSL' | 'Unavailable';
+  technology: "Fiber" | "VDSL" | "ADSL" | "Unavailable";
   lastUpdated: string;
   infrastructure: InfrastructureData;
   tracing: {
@@ -149,7 +188,6 @@ const infrastructureTool = tool(
     }),
   }
 );
-
 
 export class AddressProcessor {
   private llm: ChatGoogleGenerativeAI;
@@ -268,7 +306,9 @@ export class AddressProcessor {
     const systemPrompt = `Sen bir Türkiye adres uzmanısın. Verilen adresi analiz edip NetSpeed API'ye istek atarak internet hız bilgilerini getir.
 
 Mevcut şehir kodları:
-${Array.from(this.cityMap.entries()).map(([name, id]) => `${name}: ${id}`).join(', ')}
+${Array.from(this.cityMap.entries())
+  .map(([name, id]) => `${name}: ${id}`)
+  .join(", ")}
 
 Adım adım işlem - TÜM ADIMLARI SIRASIYLA YAP:
 1. Adresindeki şehir ismini bul ve yukarıdaki listeden ID'sini al
@@ -366,11 +406,13 @@ TÜM ADIMLARI SIRASIYLA YAP:
         // Tool results'ları message'lara ekle
         currentMessages.push(response);
         for (const toolResult of toolResults) {
-          currentMessages.push(new ToolMessage({
-            content: toolResult.result,
-            tool_call_id: toolResult.name,
-            name: toolResult.name
-          }));
+          currentMessages.push(
+            new ToolMessage({
+              content: toolResult.result,
+              tool_call_id: toolResult.name,
+              name: toolResult.name,
+            })
+          );
         }
 
         // AI'ya tool results'ları gönder ve devam et
@@ -379,64 +421,40 @@ TÜM ADIMLARI SIRASIYLA YAP:
 
       // Son tool result'ından hız bilgilerini çıkar
       const lastToolResult = tracingSteps
-        .filter(step => step.tool === "infrastructure_api")
+        .filter((step) => step.tool === "infrastructure_api")
         .pop();
 
       if (lastToolResult) {
-        // AI'ya final parsing için mesaj gönder
-        const finalPrompt = `Altyapı verilerini analiz et ve profesyonel JSON formatında döndür:
+        // Structured Output Parser ile AI'dan veri al
+        const parser = StructuredOutputParser.fromZodSchema(SpeedResultSchema);
+
+        const finalPrompt = `Altyapı verilerini analiz et ve hız bilgilerini çıkar:
 
 Altyapı Verisi: ${lastToolResult.output}
 Kullanıcı Adresi: ${userAddress}
 
-Aşağıdaki profesyonel JSON formatında döndür:
-{
-  "address": "kullanıcı adresi",
-  "downloadSpeed": Mbps cinsinden sayı,
-  "uploadSpeed": Mbps cinsinden sayı,
-  "ping": ms cinsinden sayı,
-  "provider": "Türk Telekom",
-  "technology": "Fiber" | "VDSL" | "ADSL" | "Unavailable",
-  "lastUpdated": "YYYY-MM-DD HH:mm:ss formatında tarih",
-  "infrastructure": {
-    "maxSpeed": Kbps cinsinden sayı,
-    "svuid": "SVUID string değeri",
-    "technologies": {
-      "fiber": {
-        "available": true/false,
-        "distance": metre cinsinden sayı
-      },
-      "vdsl": {
-        "available": true/false,
-        "distance": metre cinsinden sayı
-      },
-      "adsl": {
-        "available": true/false,
-        "distance": metre cinsinden sayı
-      }
-    }
-  }
-}
+${parser.getFormatInstructions()}
 
 ÖNEMLİ KURALLAR:
-- MaxSpeed değeri Kbps cinsinden gelir, Mbps'e çevir (1000'e böl)
+- MaxSpeed değeri Kbps cinsinden gelir, Mbps'e çevir (1000'e böl)   
 - PortState "VAR" ise available: true, "YOK" ise available: false
 - Distance değerini metre cinsinden sayıya çevir
 - Teknoloji önceliği: Fiber > VDSL > ADSL > Unavailable
 - Upload hızı: Fiber %60, VDSL %25, ADSL %15
 - Ping: 10-40ms arası rastgele
-- Sadece geçerli JSON döndür, başka metin ekleme`;
+- Provider: "Türk Telekom"
+- lastUpdated: YYYY-MM-DD HH:mm:ss formatında`;
 
         currentMessages.push(response);
         currentMessages.push(new HumanMessage(finalPrompt));
 
-        // AI'dan final response al
+        // AI'dan structured response al
         const finalResponse = await this.llm.invoke(currentMessages);
-        
-        // AI'nın response'unu parse et
+
+        // Structured output parser ile parse et
         try {
-          const aiResult = JSON.parse(finalResponse.content as string);
-          
+          const aiResult = await parser.parse(finalResponse.content as string);
+
           // Tracing bilgilerini ekle
           const result: SpeedResult = {
             ...aiResult,
@@ -445,12 +463,12 @@ Aşağıdaki profesyonel JSON formatında döndür:
               totalDuration: Date.now() - startTime,
               aiModel: "gemini-flash-latest",
               success: true,
-            }
+            },
           };
 
           return result;
         } catch {
-          // Eğer AI JSON döndüremezse, manuel parsing'e geri dön
+          // Eğer AI structured output döndüremezse, manuel parsing'e geri dön
           const infraData = JSON.parse(lastToolResult.output);
           const result = this.processInfrastructureData(infraData, userAddress);
 
@@ -472,11 +490,12 @@ Aşağıdaki profesyonel JSON formatında döndür:
       );
     } catch (error) {
       console.error("Address processing failed:", error);
-      
+
       // Hata durumunda da tracing bilgilerini döndür
-      const errorMessage = error instanceof Error ? error.message : 'Bilinmeyen hata';
+      const errorMessage =
+        error instanceof Error ? error.message : "Bilinmeyen hata";
       const errorWithTracing = new Error(errorMessage);
-      
+
       // Tracing bilgilerini error objesine ekle
       (errorWithTracing as any).tracing = {
         steps: tracingSteps,
@@ -487,10 +506,10 @@ Aşağıdaki profesyonel JSON formatında döndür:
           message: errorMessage,
           type: "AI_PROCESSING_ERROR",
           details: error instanceof Error ? error.stack : String(error),
-          timestamp: new Date().toISOString()
-        }
+          timestamp: new Date().toISOString(),
+        },
       };
-      
+
       throw errorWithTracing;
     }
   }
@@ -501,12 +520,13 @@ Aşağıdaki profesyonel JSON formatında döndür:
   ): SpeedResult {
     // MaxSpeed değeri Kbps cinsinden geliyor, Mbps'e çeviriyoruz
     const maxSpeedKbps = parseInt(infraData.MaxSpeed) || 0;
-    const downloadSpeed = maxSpeedKbps > 0 ? Math.floor(maxSpeedKbps / 1000) : 0;
-    
+    const downloadSpeed =
+      maxSpeedKbps > 0 ? Math.floor(maxSpeedKbps / 1000) : 0;
+
     // Upload hızı teknolojiye göre hesapla
     let uploadSpeed = 0;
-    let technology: 'Fiber' | 'VDSL' | 'ADSL' | 'Unavailable' = 'Unavailable';
-    
+    let technology: "Fiber" | "VDSL" | "ADSL" | "Unavailable" = "Unavailable";
+
     if (infraData.Fiber?.PortState === "VAR") {
       technology = "Fiber";
       uploadSpeed = Math.floor(downloadSpeed * 0.6);
@@ -517,7 +537,7 @@ Aşağıdaki profesyonel JSON formatında döndür:
       technology = "ADSL";
       uploadSpeed = Math.floor(downloadSpeed * 0.15);
     }
-    
+
     const ping = Math.floor(Math.random() * 30) + 10;
 
     // Profesyonel infrastructure data
@@ -527,17 +547,17 @@ Aşağıdaki profesyonel JSON formatında döndür:
       technologies: {
         fiber: {
           available: infraData.Fiber?.PortState === "VAR",
-          distance: parseInt(infraData.Fiber?.Distance) || 0
+          distance: parseInt(infraData.Fiber?.Distance) || 0,
         },
         vdsl: {
           available: infraData.VDSL?.PortState === "VAR",
-          distance: parseInt(infraData.VDSL?.Distance) || 0
+          distance: parseInt(infraData.VDSL?.Distance) || 0,
         },
         adsl: {
           available: infraData.ADSL?.PortState === "VAR",
-          distance: parseInt(infraData.ADSL?.Distance) || 0
-        }
-      }
+          distance: parseInt(infraData.ADSL?.Distance) || 0,
+        },
+      },
     };
 
     return {
@@ -547,7 +567,7 @@ Aşağıdaki profesyonel JSON formatında döndür:
       ping,
       provider: "Türk Telekom",
       technology,
-      lastUpdated: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      lastUpdated: new Date().toISOString().replace("T", " ").substring(0, 19),
       infrastructure,
       tracing: {
         steps: [],
