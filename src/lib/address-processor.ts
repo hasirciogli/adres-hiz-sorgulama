@@ -402,11 +402,26 @@ TÜM ADIMLARI SIRASIYLA YAP:
     infraData: Record<string, any>,
     address: string
   ): SpeedResult {
-    const maxSpeed = parseInt(infraData.MaxSpeed) || 0;
-    const downloadSpeed = maxSpeed > 0 ? Math.floor(maxSpeed / 1000) : 0;
-    const uploadSpeed = Math.floor(downloadSpeed * 0.1);
+    // MaxSpeed değeri Kbps cinsinden geliyor, Mbps'e çeviriyoruz
+    const maxSpeedKbps = parseInt(infraData.MaxSpeed) || 0;
+    const downloadSpeed = maxSpeedKbps > 0 ? Math.floor(maxSpeedKbps / 1000) : 0;
+    
+    // Upload hızı teknolojiye göre hesapla
+    let uploadSpeed = 0;
+    if (infraData.Fiber?.PortState === "VAR") {
+      // Fiber için upload genelde download'ın %50-80'i
+      uploadSpeed = Math.floor(downloadSpeed * 0.6);
+    } else if (infraData.VDSL?.PortState === "VAR") {
+      // VDSL için upload genelde download'ın %20-30'u
+      uploadSpeed = Math.floor(downloadSpeed * 0.25);
+    } else if (infraData.ADSL?.PortState === "VAR") {
+      // ADSL için upload genelde download'ın %10-20'si
+      uploadSpeed = Math.floor(downloadSpeed * 0.15);
+    }
+    
     const ping = Math.floor(Math.random() * 30) + 10;
 
+    // Teknoloji öncelik sırası: Fiber > VDSL > ADSL
     let technology = "ADSL";
     const provider = "Türk Telekom";
 
@@ -416,6 +431,11 @@ TÜM ADIMLARI SIRASIYLA YAP:
       technology = "VDSL";
     } else if (infraData.ADSL?.PortState === "VAR") {
       technology = "ADSL";
+    }
+    
+    // Eğer hiçbir teknoloji mevcut değilse, hız 0 ise varsayılan değerler
+    if (downloadSpeed === 0) {
+      technology = "Mevcut Değil";
     }
 
     return {
